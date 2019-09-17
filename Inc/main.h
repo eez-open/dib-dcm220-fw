@@ -62,12 +62,16 @@ void Error_Handler(void);
 #define CC_LED_1_GPIO_Port GPIOC
 #define CC_1_Pin GPIO_PIN_14
 #define CC_1_GPIO_Port GPIOC
+#define CC_1_EXTI_IRQn EXTI15_10_IRQn
 #define CC_2_Pin GPIO_PIN_15
 #define CC_2_GPIO_Port GPIOC
+#define CC_2_EXTI_IRQn EXTI15_10_IRQn
 #define TEMP_1_Pin GPIO_PIN_0
 #define TEMP_1_GPIO_Port GPIOA
 #define CC_LED_2_Pin GPIO_PIN_1
 #define CC_LED_2_GPIO_Port GPIOA
+#define DAC_CS_Pin GPIO_PIN_4
+#define DAC_CS_GPIO_Port GPIOA
 #define DAC_SCLK_Pin GPIO_PIN_5
 #define DAC_SCLK_GPIO_Port GPIOA
 #define TEMP_2_Pin GPIO_PIN_6
@@ -94,6 +98,7 @@ void Error_Handler(void);
 #define DAC_MOSI_GPIO_Port GPIOF
 #define DIB_SYNC_Pin GPIO_PIN_7
 #define DIB_SYNC_GPIO_Port GPIOF
+#define DIB_SYNC_EXTI_IRQn EXTI9_5_IRQn
 #define PWRGOOD_Pin GPIO_PIN_4
 #define PWRGOOD_GPIO_Port GPIOB
 #define OE_1_Pin GPIO_PIN_5

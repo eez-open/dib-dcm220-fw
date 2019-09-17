@@ -44,10 +44,14 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 
+CRC_HandleTypeDef hcrc;
+
 SDADC_HandleTypeDef hsdadc1;
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
+DMA_HandleTypeDef hdma_spi2_rx;
+DMA_HandleTypeDef hdma_spi2_tx;
 
 UART_HandleTypeDef huart2;
 
@@ -58,234 +62,21 @@ UART_HandleTypeDef huart2;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_SDADC1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_CRC_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-void DAC_SPI_Transmit(uint8_t *input, uint16_t size) {
-	//HAL_GPIO_WritePin(DAC_CS_GPIO_Port, DAC_CS_Pin, GPIO_PIN_RESET); // DAC CS active low
-	if (HAL_SPI_Transmit(&hspi1, input, size, 100) != HAL_OK) {
-		Error_Handler();
-	}
-	//HAL_GPIO_WritePin(DAC_CS_GPIO_Port, DAC_CS_Pin, GPIO_PIN_SET); // DAC CS active high
-}
-
-void dacInit() {
-	// https://datasheets.maximintegrated.com/en/ds/MAX5713-MAX5715.pdf
-
-	// DAC configuration SW RESET
-	uint8_t inputReset[3] = { 0b01010001, 0, 0 };
-	DAC_SPI_Transmit(inputReset, sizeof(inputReset));
-
-	HAL_Delay(1);
-
-	// DAC configuration POWER
-	uint8_t inputPower[3] = { 0b01000000, 0b00001111, 0 };
-	DAC_SPI_Transmit(inputPower, sizeof(inputPower));
-
-	HAL_Delay(1);
-
-	// DAC configuration SW CLEAR
-	uint8_t inputClear[3] = { 0b01010000, 0, 0 };
-	DAC_SPI_Transmit(inputClear, sizeof(inputClear));
-
-	HAL_Delay(1);
-
-	// DAC set internal ref. voltage to 2.5V
-	uint8_t inputRefVolt[3] = { 0b01110101, 0, 0 };
-	DAC_SPI_Transmit(inputRefVolt, sizeof(inputRefVolt));
-
-	HAL_Delay(1);
-}
-
-void dac_CODEn_LODEn(uint8_t dacSelection, uint16_t value) {
-	// CODEn_LODEn
-
-	//HAL_GPIO_WritePin(DAC_CS_GPIO_Port, DAC_CS_Pin, GPIO_PIN_RESET); // DAC CS active low
-
-	uint8_t input1[3] = { 0b0011000 | dacSelection, value >> 4, (value & 0x0F) << 4 };
-	if (HAL_SPI_Transmit(&hspi1, input1, 3, 100) != HAL_OK) {
-		Error_Handler();
-	}
-
-	//HAL_GPIO_WritePin(DAC_CS_GPIO_Port, DAC_CS_Pin, GPIO_PIN_SET); // DAC CS active high
-}
-
-void dacSetVoltage(uint8_t iChannel, uint16_t value) {
-	dac_CODEn_LODEn(iChannel * 2 + 0, value);
-}
-
-void dacSetCurrent(uint8_t iChannel, uint16_t value) {
-	dac_CODEn_LODEn(iChannel * 2 + 1, value);
-}
-
-void adcInit() {
-	// 6 napon
-	// 5 struja
-	if (HAL_SDADC_AssociateChannelConfig(&hsdadc1, SDADC_CHANNEL_5, SDADC_CONF_INDEX_0) != HAL_OK) {
-		Error_Handler();
-	}
-	if (HAL_SDADC_AssociateChannelConfig(&hsdadc1, SDADC_CHANNEL_6, SDADC_CONF_INDEX_0) != HAL_OK) {
-		Error_Handler();
-	}
-	if (HAL_SDADC_SelectRegularTrigger(&hsdadc1, SDADC_SOFTWARE_TRIGGER) != HAL_OK) {
-		Error_Handler();
-	}
-}
-
-uint32_t adcReadVoltage() {
-	if (HAL_SDADC_ConfigChannel(&hsdadc1, SDADC_CHANNEL_6, SDADC_CONTINUOUS_CONV_OFF) != HAL_OK) {
-		Error_Handler();
-	}
-
-	if (HAL_SDADC_Start(&hsdadc1) != HAL_OK) {
-		Error_Handler();
-	}
-
-	if (HAL_SDADC_PollForConversion(&hsdadc1, HAL_MAX_DELAY) != HAL_OK) {
-		Error_Handler();
-	}
-
-	uint32_t value = HAL_SDADC_GetValue(&hsdadc1);
-
-	if (HAL_SDADC_Stop(&hsdadc1) != HAL_OK) {
-		Error_Handler();
-	}
-
-	return value;
-}
-
-uint32_t adcReadCurrent() {
-	if (HAL_SDADC_ConfigChannel(&hsdadc1, SDADC_CHANNEL_5, SDADC_CONTINUOUS_CONV_OFF) != HAL_OK) {
-		Error_Handler();
-	}
-
-	if (HAL_SDADC_Start(&hsdadc1) != HAL_OK) {
-		Error_Handler();
-	}
-
-	if (HAL_SDADC_PollForConversion(&hsdadc1, HAL_MAX_DELAY) != HAL_OK) {
-		Error_Handler();
-	}
-
-	uint32_t value = HAL_SDADC_GetValue(&hsdadc1);
-
-	if (HAL_SDADC_Stop(&hsdadc1) != HAL_OK) {
-		Error_Handler();
-	}
-
-	return value;
-}
-
-void outputEnable(int iChannel, int enable) {
-	HAL_GPIO_WritePin(iChannel == 0 ? OE_1_GPIO_Port : OE_2_GPIO_Port, iChannel == 0 ? OE_1_Pin : OE_2_Pin, enable ? GPIO_PIN_SET : GPIO_PIN_RESET);
-}
-
-void ccLED(int iChannel, int enable) {
-	HAL_GPIO_WritePin(iChannel == 0 ? CC_LED_1_GPIO_Port : CC_LED_2_GPIO_Port, iChannel == 0 ? CC_LED_1_Pin : CC_LED_2_Pin, enable ? GPIO_PIN_SET : GPIO_PIN_RESET);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-uint8_t flag = 0;
-
-void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
-    flag = 1;
-}
-
-void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
-    flag = 2;
-}
-
-#define BUFFER_SIZE 10
-
-uint8_t output[BUFFER_SIZE] = { 42, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-uint8_t input[BUFFER_SIZE];
-
-int isInterrupt() {
-    return (SCB->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
-}
-
-void beginTransfer() {
-	flag = 0;
-	HAL_SPI_TransmitReceive_IT(&hspi2, output, input, BUFFER_SIZE);
-}
-
-#define SPI_SLAVE_SYNBYTE         0x53
-#define SPI_MASTER_SYNBYTE        0xAC
-
-void slaveSynchro(void) {
-  uint8_t txackbyte = SPI_SLAVE_SYNBYTE, rxackbyte = 0x00;
-  do {
-    if (HAL_SPI_TransmitReceive(&hspi2, (uint8_t *)&txackbyte, (uint8_t *)&rxackbyte, 1, HAL_MAX_DELAY) != HAL_OK) {
-      Error_Handler();
-    }
-  } while (rxackbyte != SPI_MASTER_SYNBYTE);
-}
-
-void startSPI() {
-  // dacInit();
-	// dacSetVoltage(0, 3000);
-	// dacSetCurrent(0, 500);
-
-	// outputEnable(0, 1);
-
-	slaveSynchro();
-
-	if (HAL_SPI_TransmitReceive_IT(&hspi2, output, input, BUFFER_SIZE) != HAL_OK) {
-		Error_Handler();
-	}
-}
-
-void loopSPI() {
-	if (flag != 0) {
-		if (flag == 1) {
-			// uint8_t cmd = input[0];
-			// uint16_t param = input[1] | (input[2] << 8);
-
-			// switch (cmd) {
-			// case 10: outputEnable (0, 0);
-			// case 11: outputEnable (0, 1);
-			// case 12: ccLED        (0, 0);
-			// case 13: ccLED        (0, 1);
-			// case 14: dacSetVoltage(0, param);
-			// case 15: dacSetCurrent(0, param);
-
-			// case 20: outputEnable (0, 0);
-			// case 21: outputEnable (0, 1);
-			// case 22: ccLED        (0, 0);
-			// case 23: ccLED        (0, 1);
-			// case 24: dacSetVoltage(0, param);
-			// case 25: dacSetCurrent(0, param);
-			// }
-
-			for (int i = 0; i < BUFFER_SIZE; i++) {
-				output[i] = input[i];
-			}
-		} else {
-			for (int i = 0; i < BUFFER_SIZE; i++) {
-				output[i] = 99;
-			}
-		}
-
-		HAL_Delay(1);
-		beginTransfer();
-	}
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-void (*start)() = startSPI;
-void (*loop)() = loopSPI;
-
+void setup();
+void loop();
 /* USER CODE END 0 */
 
 /**
@@ -317,11 +108,13 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_SDADC1_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
   MX_USART2_UART_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
   start();
@@ -335,9 +128,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
 	  loop();
-
   }
   /* USER CODE END 3 */
 }
@@ -423,7 +214,7 @@ static void MX_ADC1_Init(void)
   }
   /** Configure Regular Channel 
   */
-  sConfig.Channel = ADC_CHANNEL_TEMPSENSOR;
+  sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
@@ -433,6 +224,37 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief CRC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_Init(void)
+{
+
+  /* USER CODE BEGIN CRC_Init 0 */
+
+  /* USER CODE END CRC_Init 0 */
+
+  /* USER CODE BEGIN CRC_Init 1 */
+
+  /* USER CODE END CRC_Init 1 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_BYTES;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CRC_Init 2 */
+
+  /* USER CODE END CRC_Init 2 */
 
 }
 
@@ -467,11 +289,18 @@ static void MX_SDADC1_Init(void)
   }
   /** Set parameters for SDADC configuration 0 Register 
   */
-  ConfParamStruct.InputMode = SDADC_INPUT_MODE_SE_OFFSET;
+  ConfParamStruct.InputMode = SDADC_INPUT_MODE_SE_ZERO_REFERENCE;
   ConfParamStruct.Gain = SDADC_GAIN_1;
   ConfParamStruct.CommonMode = SDADC_COMMON_MODE_VSSA;
   ConfParamStruct.Offset = 0;
   if (HAL_SDADC_PrepareChannelConfig(&hsdadc1, SDADC_CONF_INDEX_0, &ConfParamStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Set parameters for SDADC configuration 1 Register 
+  */
+  ConfParamStruct.Gain = SDADC_GAIN_2;
+  if (HAL_SDADC_PrepareChannelConfig(&hsdadc1, SDADC_CONF_INDEX_1, &ConfParamStruct) != HAL_OK)
   {
     Error_Handler();
   }
@@ -503,7 +332,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_HARD_OUTPUT;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
   hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
@@ -595,6 +424,25 @@ static void MX_USART2_UART_Init(void)
 
 }
 
+/** 
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void) 
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+
+}
+
 /**
   * @brief GPIO Initialization Function
   * @param None
@@ -615,7 +463,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(CC_LED_1_GPIO_Port, CC_LED_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, CC_LED_2_Pin|DIB_IRQ_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, CC_LED_2_Pin|DAC_CS_Pin|DIB_IRQ_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, OE_1_Pin|OE_2_Pin, GPIO_PIN_RESET);
@@ -629,12 +477,12 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : CC_1_Pin CC_2_Pin */
   GPIO_InitStruct.Pin = CC_1_Pin|CC_2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : CC_LED_2_Pin DIB_IRQ_Pin */
-  GPIO_InitStruct.Pin = CC_LED_2_Pin|DIB_IRQ_Pin;
+  /*Configure GPIO pins : CC_LED_2_Pin DAC_CS_Pin DIB_IRQ_Pin */
+  GPIO_InitStruct.Pin = CC_LED_2_Pin|DAC_CS_Pin|DIB_IRQ_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -642,15 +490,15 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : DIB_SYNC_Pin */
   GPIO_InitStruct.Pin = DIB_SYNC_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(DIB_SYNC_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PWRGOOD_Pin Reserved_Pin ReservedB9_Pin */
-  GPIO_InitStruct.Pin = PWRGOOD_Pin|Reserved_Pin|ReservedB9_Pin;
+  /*Configure GPIO pin : PWRGOOD_Pin */
+  GPIO_InitStruct.Pin = PWRGOOD_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(PWRGOOD_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : OE_1_Pin OE_2_Pin */
   GPIO_InitStruct.Pin = OE_1_Pin|OE_2_Pin;
@@ -658,6 +506,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Reserved_Pin ReservedB9_Pin */
+  GPIO_InitStruct.Pin = Reserved_Pin|ReservedB9_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
