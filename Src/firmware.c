@@ -5,6 +5,7 @@
 extern SPI_HandleTypeDef hspi1;
 extern SPI_HandleTypeDef hspi2;
 extern ADC_HandleTypeDef hadc1;
+extern DMA_HandleTypeDef hdma_adc1;
 extern SDADC_HandleTypeDef hsdadc1;
 extern CRC_HandleTypeDef hcrc;
 
@@ -18,20 +19,7 @@ extern CRC_HandleTypeDef hcrc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define TRANSFER_TEMP 0
-#define TRANSFER_CRC 0
-
-#if TRANSFER_CRC && TRANSFER_TEMP == 3
 #define BUFFER_SIZE 20
-#elif TRANSFER_CRC && TRANSFER_TEMP == 2
-#define BUFFER_SIZE 18
-#elif TRANSFER_CRC && TRANSFER_TEMP == 1
-#define BUFFER_SIZE 18
-#elif TRANSFER_CRC && TRANSFER_TEMP == 0
-#define BUFFER_SIZE 14
-#else
-#define BUFFER_SIZE 10
-#endif
 
 uint8_t output[BUFFER_SIZE];
 uint8_t input[BUFFER_SIZE];
@@ -41,21 +29,10 @@ uint16_t *output_iMon0 = (uint16_t *)(output + 4);
 uint16_t *output_uMon1 = (uint16_t *)(output + 6);
 uint16_t *output_iMon1 = (uint16_t *)(output + 8);
 
-#if TRANSFER_TEMP > 0
 uint16_t *output_temperature0 = (uint16_t *)(output + 10);
-#endif
-
-#if TRANSFER_TEMP > 1
 uint16_t *output_temperature1 = (uint16_t *)(output + 12);
-#endif
-
-#if TRANSFER_TEMP > 2
 uint16_t *output_temperature2 = (uint16_t *)(output + 14);
-#endif
-
-#if TRANSFER_CRC
-	uint32_t *output_CRC = (uint32_t *)(output + BUFFER_SIZE - 4);
-#endif
+uint32_t *output_CRC = (uint32_t *)(output + BUFFER_SIZE - 4);
 
 uint16_t *inputSetValues = (uint16_t *)(input + 2);
 
@@ -64,7 +41,7 @@ int transferCompleted;
 uint16_t uMon[2];
 uint16_t iMon[2];
 
-uint16_t temperature[3];
+uint16_t temperature[3] = { 65535, 65535, 65535 }; // 65535 = invalid (not measured yet) temperature
 
 uint16_t uSet[2];
 uint16_t iSet[2];
@@ -294,18 +271,32 @@ uint16_t sdadcReadCurrent(int iChannel) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void adcInit() {
-    if (HAL_ADC_Start(&hadc1) != HAL_OK) {
-        Error_Handler();
-    }
+uint16_t adcConvertedValues[3];
+int adcTransferCompleted = 1;
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
+	adcTransferCompleted = 1;
 }
 
-uint16_t adcReadTemperature() {
-    if (HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY) != HAL_OK) {
-        Error_Handler();
+void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc) {
+	adcTransferCompleted = 2;
+}
+
+void adcInit() {
+}
+
+void adcLoop() {
+    if (adcTransferCompleted > 0) {
+    	if (adcTransferCompleted == 1) {
+    		temperature[0] = adcConvertedValues[0];
+    		temperature[1] = adcConvertedValues[1];
+    		temperature[2] = adcConvertedValues[2];
+    	}
+
+    	adcTransferCompleted = 0;
+
+    	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)&adcConvertedValues, 3);
     }
-    uint16_t value = (uint16_t)HAL_ADC_GetValue(&hadc1);
-    return value;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -410,23 +401,13 @@ void loopOperation_AdcI1() {
     iMon[1] = sdadcReadCurrent(1);
 }
 
-void loopOperation_AdcTemperature0() {
-	temperature[0] = adcReadTemperature();
-}
-
-void loopOperation_AdcTemperature1() {
-	temperature[1] = adcReadTemperature();
-}
-
-void loopOperation_AdcTemperature2() {
-	temperature[2] = adcReadTemperature();
+void loopOperation_Temperature() {
+	adcLoop();
 }
 
 typedef void (*LoopOperation)();
 
-#define NUM_LOOP_OPERATIONS 12
-
-LoopOperation loopOperations[NUM_LOOP_OPERATIONS] = {
+LoopOperation loopOperations[] = {
   loopOperation_DacCodeU0,
   loopOperation_DacCodeI0,
   loopOperation_DacCodeU1,
@@ -436,10 +417,10 @@ LoopOperation loopOperations[NUM_LOOP_OPERATIONS] = {
   loopOperation_AdcI0,
   loopOperation_AdcU1,
   loopOperation_AdcI1,
-  loopOperation_AdcTemperature0,
-  loopOperation_AdcTemperature1,
-  loopOperation_AdcTemperature2
+  loopOperation_Temperature
 };
+
+static const int NUM_LOOP_OPERATIONS = sizeof(loopOperations) / sizeof(LoopOperation);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -461,21 +442,10 @@ void beginTransfer() {
     *output_uMon1 = uMon[1];
     *output_iMon1 = iMon[1];
 
-#if TRANSFER_TEMP > 0
     *output_temperature0 = temperature[0];
-#endif
-
-#if TRANSFER_TEMP > 1
     *output_temperature1 = temperature[1];
-#endif
-
-#if TRANSFER_TEMP > 2
     *output_temperature2 = temperature[2];
-#endif
-
-#if TRANSFER_CRC
     *output_CRC = HAL_CRC_Calculate(&hcrc, (uint32_t *)output, BUFFER_SIZE - 4);
-#endif
 
     HAL_SPI_TransmitReceive_DMA(&hspi2, output, input, BUFFER_SIZE);
 }
@@ -488,7 +458,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
     transferCompleted = 1;
 }
 
-void start() {
+void setup() {
     // disable outputs
     HAL_GPIO_WritePin(OE_1_GPIO_Port, OE_1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(OE_2_GPIO_Port, OE_2_Pin, GPIO_PIN_RESET);
