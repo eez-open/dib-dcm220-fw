@@ -50,6 +50,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -70,12 +72,12 @@ void Error_Handler(void);
 #define TEMP_1_GPIO_Port GPIOA
 #define CC_LED_2_Pin GPIO_PIN_1
 #define CC_LED_2_GPIO_Port GPIOA
-#define DAC_CS_Pin GPIO_PIN_4
-#define DAC_CS_GPIO_Port GPIOA
-#define DAC_SCLK_Pin GPIO_PIN_5
-#define DAC_SCLK_GPIO_Port GPIOA
-#define TEMP_2_Pin GPIO_PIN_6
+#define TEMP_2_Pin GPIO_PIN_4
 #define TEMP_2_GPIO_Port GPIOA
+#define U_SET_2_Pin GPIO_PIN_5
+#define U_SET_2_GPIO_Port GPIOA
+#define U_SET_1_Pin GPIO_PIN_6
+#define U_SET_1_GPIO_Port GPIOA
 #define U_MON_1_Pin GPIO_PIN_0
 #define U_MON_1_GPIO_Port GPIOB
 #define I_MON_1_Pin GPIO_PIN_1
@@ -94,8 +96,6 @@ void Error_Handler(void);
 #define DIB_NSS_GPIO_Port GPIOA
 #define DIB_IRQ_Pin GPIO_PIN_12
 #define DIB_IRQ_GPIO_Port GPIOA
-#define DAC_MOSI_Pin GPIO_PIN_6
-#define DAC_MOSI_GPIO_Port GPIOF
 #define DIB_SYNC_Pin GPIO_PIN_7
 #define DIB_SYNC_GPIO_Port GPIOF
 #define DIB_SYNC_EXTI_IRQn EXTI9_5_IRQn
@@ -105,10 +105,10 @@ void Error_Handler(void);
 #define OE_1_GPIO_Port GPIOB
 #define OE_2_Pin GPIO_PIN_6
 #define OE_2_GPIO_Port GPIOB
-#define Reserved_Pin GPIO_PIN_8
-#define Reserved_GPIO_Port GPIOB
-#define ReservedB9_Pin GPIO_PIN_9
-#define ReservedB9_GPIO_Port GPIOB
+#define I_SET_1_Pin GPIO_PIN_8
+#define I_SET_1_GPIO_Port GPIOB
+#define I_SET_2_Pin GPIO_PIN_9
+#define I_SET_2_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

@@ -2,7 +2,6 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-extern SPI_HandleTypeDef hspi1;
 extern SPI_HandleTypeDef hspi2;
 extern ADC_HandleTypeDef hadc1;
 extern DMA_HandleTypeDef hdma_adc1;
@@ -52,7 +51,6 @@ uint16_t iSetNext[2];
 int updateSetValues[2];
 
 int loopOperationIndex;
-int loadDac;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -133,82 +131,41 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void DAC_SPI_Transmit(uint8_t r0, uint8_t r1, uint8_t r2) {
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET); // DAC CS active low
-    uint8_t input[3] = { r0, r1, r2 };
-    if (HAL_SPI_Transmit(&hspi1, input, 3, 10) != HAL_OK) {
-        Error_Handler();
-    }
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET); // DAC CS active high
-}
+extern DAC_HandleTypeDef hdac1;
+extern DAC_HandleTypeDef hdac2;
 
-void dacInit() {
-    // https://datasheets.maximintegrated.com/en/ds/MAX5713-MAX5715.pdf
-
-    // DAC configuration SW RESET
-    DAC_SPI_Transmit(0b01010001, 0, 0);
-    HAL_Delay(1);
-
-    // DAC configuration POWER
-    DAC_SPI_Transmit(0b01000000, 0b00001111, 0);
-    HAL_Delay(1);
-
-    // DAC configuration SW CLEAR
-    DAC_SPI_Transmit(0b01010000, 0, 0);
-    HAL_Delay(1);
-
-    // DAC set internal ref. voltage to 2.5V
-    DAC_SPI_Transmit(0b01110101, 0, 0);
-    HAL_Delay(1);
-}
-
-void dac_CODEn(uint8_t dacSelection, uint16_t value) {
-    DAC_SPI_Transmit(0b00000000 | dacSelection, value >> 4, (value & 0x0F) << 4);
-}
-
-void dac_LOAD_ALL() {
-    DAC_SPI_Transmit(0b10000001, 0, 0);
-}
-
-void dac_CODEn_LODEn(uint8_t dacSelection, uint16_t value) {
-    DAC_SPI_Transmit(0b00110000 | dacSelection, value >> 4, (value & 0x0F) << 4);
-}
-
-uint8_t getVoltageDacSelection(uint8_t iChannel) {
-    return iChannel == 0 ? 0 /* DAC A */ : 3 /* DAC D */;
-}
-
-uint8_t getCurrentDacSelection(uint8_t iChannel) {
-    return iChannel == 0 ? 1 /* DAC A */ : 2 /* DAC D */;
-}
+extern TIM_HandleTypeDef htim16;
+extern TIM_HandleTypeDef htim17;
 
 void dacSetVoltage(uint8_t iChannel, uint16_t value) {
-    dac_CODEn_LODEn(getVoltageDacSelection(iChannel), 4095 - value);
+	if (iChannel == 0) {
+		HAL_DAC_Start(&hdac2, DAC_CHANNEL_1);
+		HAL_DAC_SetValue(&hdac2, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 4095 - value);
+	} else {
+		HAL_DAC_Start(&hdac1, DAC_CHANNEL_2);
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 4095 - value);
+	}
 }
 
 void dacSetCurrent(uint8_t iChannel, uint16_t value) {
-    dac_CODEn_LODEn(getCurrentDacSelection(iChannel), value);
+	if (iChannel == 0) {
+		__HAL_TIM_SET_COMPARE(&htim16, TIM_CHANNEL_1, (uint32_t)value * 1440 / 4095);
+	} else {
+		__HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, (uint32_t)value * 1440 / 4095);
+	}
 }
 
-void dacCodeVoltage(uint8_t iChannel, uint16_t value) {
-    dac_CODEn(getVoltageDacSelection(iChannel), 4095 - value);
-}
 
-void dacCodeCurrent(uint8_t iChannel, uint16_t value) {
-    dac_CODEn(getCurrentDacSelection(iChannel), value);
-}
+void dacInit() {
+	dacSetVoltage(0, 0); // U_SET#1 <- 0
 
-void dacSetAllZero() {
-    dacCodeVoltage(0, 0);
-    dacCodeVoltage(1, 0);
-    dacCodeCurrent(0, 0);
-    dacCodeCurrent(1, 0);
-    dac_LOAD_ALL();
-}
+	HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
+	dacSetCurrent(0, 0); // I_SET#1 <- 0
 
-void dacSetAllHalf() {
-    // CODE_ALL_LOAD_ALL
-    DAC_SPI_Transmit(0b10000010, 0b10100000, 0);
+	dacSetVoltage(1, 0); // U_SET#2 <- 0
+
+	HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1);
+	dacSetCurrent(1, 0); // I_SET#2 <- 0
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -286,17 +243,17 @@ void adcInit() {
 }
 
 void adcLoop() {
-    if (adcTransferCompleted > 0) {
-    	if (adcTransferCompleted == 1) {
-    		temperature[0] = adcConvertedValues[0];
-    		temperature[1] = adcConvertedValues[1];
-    		temperature[2] = adcConvertedValues[2];
-    	}
+	if (adcTransferCompleted > 0) {
+		if (adcTransferCompleted == 1) {
+			temperature[0] = adcConvertedValues[0];
+			temperature[1] = adcConvertedValues[1];
+			temperature[2] = adcConvertedValues[2];
+		}
 
-    	adcTransferCompleted = 0;
+		adcTransferCompleted = 0;
 
-    	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)&adcConvertedValues, 3);
-    }
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t *)&adcConvertedValues, 3);
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -320,12 +277,11 @@ void loopOperation_DacCodeU0() {
     if (uSet[0] != uSetNext[0] || updateSetValues[0]) {
     	if (reg0 & REG0_OE1_MASK) {
     		uSet[0] = uSetNext[0];
-    		dacCodeVoltage(0, uSet[0]);
+    		dacSetVoltage(0, uSet[0]);
     	} else {
     		// set voltage to zero if channel is turned off
-    		dacCodeVoltage(0, 0);
+    		dacSetVoltage(0, 0);
     	}
-        loadDac = 1;
     }
 }
 
@@ -334,12 +290,13 @@ void loopOperation_DacCodeI0() {
     if (iSet[0] != iSetNext[0] || updateSetValues[0]) {
     	if (reg0 & REG0_OE1_MASK) {
     		iSet[0] = iSetNext[0];
-    		dacCodeCurrent(0, iSet[0]);
+    		dacSetCurrent(0, iSet[0]);
     	} else {
     		// set current to zero if channel is turned off
-    		dacCodeCurrent(0, 0);
+    		dacSetCurrent(0, 0);
     	}
-        loadDac = 1;
+
+    	updateSetValues[0] = 0;
     }
 }
 
@@ -348,12 +305,11 @@ void loopOperation_DacCodeU1() {
     if (uSet[1] != uSetNext[1] || updateSetValues[1]) {
     	if (reg0 & REG0_OE2_MASK) {
     		uSet[1] = uSetNext[1];
-    		dacCodeVoltage(1, uSet[1]);
+    		dacSetVoltage(1, uSet[1]);
     	} else {
     		// set voltage to zero if channel is turned off
-    		dacCodeVoltage(1, 0);
+    		dacSetVoltage(1, 0);
     	}
-        loadDac = 1;
     }
 }
 
@@ -362,21 +318,12 @@ void loopOperation_DacCodeI1() {
     if (iSet[1] != iSetNext[1] || updateSetValues[1]) {
     	if (reg0 & REG0_OE2_MASK) {
     		iSet[1] = iSetNext[1];
-    		dacCodeCurrent(1, iSet[1]);
+    		dacSetCurrent(1, iSet[1]);
     	} else {
     		// set current to zero if channel is turned off
-    		dacCodeCurrent(1, 0);
+    		dacSetCurrent(1, 0);
     	}
-        loadDac = 1;
-    }
-}
 
-// load all coded SET values
-void loopOperation_DacLoadAll() {
-    if (loadDac) {
-        dac_LOAD_ALL();
-        loadDac = 0;
-    	updateSetValues[0] = 0;
     	updateSetValues[1] = 0;
     }
 }
@@ -412,7 +359,6 @@ LoopOperation loopOperations[] = {
   loopOperation_DacCodeI0,
   loopOperation_DacCodeU1,
   loopOperation_DacCodeI1,
-  loopOperation_DacLoadAll,
   loopOperation_AdcU0,
   loopOperation_AdcI0,
   loopOperation_AdcU1,
@@ -464,11 +410,11 @@ void setup() {
     HAL_GPIO_WritePin(OE_2_GPIO_Port, OE_2_Pin, GPIO_PIN_RESET);
 
     dacInit();
-    dacSetAllZero();
+//    dacSetAllZero();
 
     sdadcInit();
 
-    adcInit();
+    //adcInit();
 
     slaveSynchro();
 
