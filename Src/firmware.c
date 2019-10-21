@@ -1,5 +1,7 @@
 #include "main.h"
 
+#include <math.h>
+
 ////////////////////////////////////////////////////////////////////////////////
 
 extern SPI_HandleTypeDef hspi2;
@@ -215,7 +217,16 @@ uint16_t sdadcRead(uint32_t channel) {
         Error_Handler();
     }
 
-    return value;
+    if (channel == SDADC_CHANNEL_5 || channel == SDADC_CHANNEL_8) {
+    	float fvalue = roundf(value * (2.5f / 1.5f) * (2.5f / 1.5f));
+        if (fvalue > 65535) {
+            fvalue = 65535;
+        }
+        value = (uint16_t)fvalue;
+    }
+
+
+    return (uint16_t)value;
 }
 
 uint16_t sdadcReadVoltage(int iChannel) {
@@ -228,7 +239,7 @@ uint16_t sdadcReadCurrent(int iChannel) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-uint16_t adcConvertedValues[3];
+uint32_t adcConvertedValues[3];
 int adcTransferCompleted = 1;
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
@@ -245,14 +256,13 @@ void adcInit() {
 void adcLoop() {
 	if (adcTransferCompleted > 0) {
 		if (adcTransferCompleted == 1) {
-			temperature[0] = adcConvertedValues[0];
-			temperature[1] = adcConvertedValues[1];
-			temperature[2] = adcConvertedValues[2];
+			temperature[0] = (uint16_t)adcConvertedValues[0];
+			temperature[1] = (uint16_t)adcConvertedValues[1];
+			temperature[2] = (uint16_t)adcConvertedValues[2];
 		}
 
 		adcTransferCompleted = 0;
-
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t *)&adcConvertedValues, 3);
+		HAL_ADC_Start_DMA(&hadc1, adcConvertedValues, 3);
 	}
 }
 
@@ -426,37 +436,13 @@ void loop() {
     if (transferCompleted) {
         transferCompleted = 0;
 
-        uint8_t cmd = input[0];
+		outputEnable(0, input[0] & REG0_OE1_MASK);
+		outputEnable(1, input[0] & REG0_OE2_MASK);
 
-        if (cmd & 0x80) {
-            outputEnable(0, cmd & REG0_OE1_MASK);
-            outputEnable(1, cmd & REG0_OE2_MASK);
-
-            uSetNext[0] = inputSetValues[0];
-            iSetNext[0] = inputSetValues[1];
-            uSetNext[1] = inputSetValues[2];
-            iSetNext[1] = inputSetValues[3];
-        } else if (cmd & 0x40) {
-            cmd &= ~0xC0;
-
-            uint16_t param = (input[2] << 8) | input[1];
-
-            switch (cmd) {
-            case 10: outputEnable (0, 0); break;
-            case 11: outputEnable (0, 1); break;
-            case 12: ccLED        (0, 0); break;
-            case 13: ccLED        (0, 1); break;
-            case 14: uSetNext[0] = param; break;
-            case 15: iSetNext[0] = param; break;
-
-            case 20: outputEnable (1, 0); break;
-            case 21: outputEnable (1, 1); break;
-            case 22: ccLED        (1, 0); break;
-            case 23: ccLED        (1, 1); break;
-            case 24: uSetNext[1] = param; break;
-            case 25: iSetNext[1] = param; break;
-            }
-        }
+		uSetNext[0] = inputSetValues[0];
+		iSetNext[0] = inputSetValues[1];
+		uSetNext[1] = inputSetValues[2];
+		iSetNext[1] = inputSetValues[3];
 
         beginTransfer();
     }
