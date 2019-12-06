@@ -217,15 +217,6 @@ uint16_t sdadcRead(uint32_t channel) {
         Error_Handler();
     }
 
-    if (channel == SDADC_CHANNEL_5 || channel == SDADC_CHANNEL_8) {
-    	float fvalue = roundf(value * (2.5f / 1.5f) * (2.5f / 1.5f));
-        if (fvalue > 65535) {
-            fvalue = 65535;
-        }
-        value = (uint16_t)fvalue;
-    }
-
-
     return (uint16_t)value;
 }
 
@@ -240,29 +231,26 @@ uint16_t sdadcReadCurrent(int iChannel) {
 ////////////////////////////////////////////////////////////////////////////////
 
 uint32_t adcConvertedValues[3];
-int adcTransferCompleted = 1;
+uint32_t lastAdcStartTickCounter = 0;
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-	adcTransferCompleted = 1;
+	temperature[0] = (uint16_t)adcConvertedValues[0];
+	temperature[1] = (uint16_t)adcConvertedValues[1];
+	temperature[2] = (uint16_t)adcConvertedValues[2];
 }
 
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc) {
-	adcTransferCompleted = 2;
 }
 
 void adcInit() {
 }
 
 void adcLoop() {
-	if (adcTransferCompleted > 0) {
-		if (adcTransferCompleted == 1) {
-			temperature[0] = (uint16_t)adcConvertedValues[0];
-			temperature[1] = (uint16_t)adcConvertedValues[1];
-			temperature[2] = (uint16_t)adcConvertedValues[2];
-		}
-
-		adcTransferCompleted = 0;
+	uint32_t tickCounter = HAL_GetTick();
+	int32_t diff = tickCounter - lastAdcStartTickCounter;
+	if (lastAdcStartTickCounter == 0 || diff > 1000) {
 		HAL_ADC_Start_DMA(&hadc1, adcConvertedValues, 3);
+		lastAdcStartTickCounter = tickCounter;
 	}
 }
 
