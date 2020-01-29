@@ -4,6 +4,11 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#define FIRMWARE_VERSION_MAJOR 0x00
+#define FIRMWARE_VERSION_MINOR 0x03
+
+////////////////////////////////////////////////////////////////////////////////
+
 extern SPI_HandleTypeDef hspi2;
 extern ADC_HandleTypeDef hadc1;
 extern DMA_HandleTypeDef hdma_adc1;
@@ -64,7 +69,6 @@ int isInterrupt() {
 
 uint8_t reg0;
 
-// just mark for output enable/disable and wait for DIB_SYNC to perform actual operation
 void outputEnable(int iChannel, int enable) {
 	uint8_t mask = iChannel == 0 ? REG0_OE1_MASK : REG0_OE2_MASK;
 
@@ -82,6 +86,12 @@ void outputEnable(int iChannel, int enable) {
 		reg0 &= ~mask;
 	}
 
+	if (iChannel == 0) {
+		HAL_GPIO_WritePin(OE_1_GPIO_Port, OE_1_Pin, enable ? GPIO_PIN_SET : GPIO_PIN_RESET);
+	} else {
+		HAL_GPIO_WritePin(OE_2_GPIO_Port, OE_2_Pin, enable ? GPIO_PIN_SET : GPIO_PIN_RESET);
+	}
+
 	// make sure we update SET values for this channel
 	updateSetValues[iChannel] = 1;
 	loopOperationIndex = 0;
@@ -97,19 +107,15 @@ void ccLED(int iChannel, int enable) {
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-    if (GPIO_Pin == DIB_SYNC_Pin) {
-        // DIB_SYNC received, enable/disable output
+    if (GPIO_Pin == PWRGOOD_Pin) {
+        if (HAL_GPIO_ReadPin(PWRGOOD_GPIO_Port, PWRGOOD_Pin) == GPIO_PIN_SET) {
+            reg0 |= REG0_PWRGOOD_MASK;
+            outputEnable(0, false);
+            outputEnable(1, false);
+        } else {
+            reg0 &= ~REG0_PWRGOOD_MASK;
 
-    	if (transferCompleted) {
-            uint8_t cmd = input[0];
-            if (cmd & 0x80) {
-				outputEnable(0, cmd & REG0_OE1_MASK);
-				outputEnable(1, cmd & REG0_OE2_MASK);
-            }
-        }
-
-        HAL_GPIO_WritePin(OE_1_GPIO_Port, OE_1_Pin, reg0 & REG0_OE1_MASK ? GPIO_PIN_SET : GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(OE_2_GPIO_Port, OE_2_Pin, reg0 & REG0_OE2_MASK ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        }        
     } else if (GPIO_Pin == CC_1_Pin) {
         if (HAL_GPIO_ReadPin(CC_1_GPIO_Port, CC_1_Pin)) {
             reg0 |= REG0_CC1_MASK;
@@ -128,6 +134,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
         // update CC LED
         HAL_GPIO_WritePin(CC_LED_2_GPIO_Port, CC_LED_2_Pin, (reg0 & REG0_OE2_MASK) && (reg0 & REG0_CC2_MASK));
+    } else if (GPIO_Pin == DIB_SYNC_Pin) {
     }
 }
 
@@ -260,12 +267,13 @@ void adcLoop() {
 #define SPI_MASTER_SYNBYTE        0xAC
 
 void slaveSynchro(void) {
-    uint8_t txackbyte = SPI_SLAVE_SYNBYTE, rxackbyte = 0x00;
+    uint8_t txBuffer[3] = { SPI_SLAVE_SYNBYTE, FIRMWARE_VERSION_MAJOR, FIRMWARE_VERSION_MINOR };
+    uint8_t rxBuffer[3] = { 0, 0, 0 };
     do {
-        if (HAL_SPI_TransmitReceive(&hspi2, (uint8_t *)&txackbyte, (uint8_t *)&rxackbyte, 1, HAL_MAX_DELAY) != HAL_OK) {
+        if (HAL_SPI_TransmitReceive(&hspi2, (uint8_t *)&txBuffer, (uint8_t *)&rxBuffer, 3, HAL_MAX_DELAY) != HAL_OK) {
             Error_Handler();
         }
-    } while (rxackbyte != SPI_MASTER_SYNBYTE);
+    } while (rxBuffer[0] != SPI_MASTER_SYNBYTE);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -368,17 +376,7 @@ static const int NUM_LOOP_OPERATIONS = sizeof(loopOperations) / sizeof(LoopOpera
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void readPwrGood() {
-    if (HAL_GPIO_ReadPin(PWRGOOD_GPIO_Port, PWRGOOD_Pin) == GPIO_PIN_SET) {
-        reg0 |= REG0_PWRGOOD_MASK;
-    } else {
-        reg0 &= ~REG0_PWRGOOD_MASK;
-    }
-}
-
 void beginTransfer() {
-    readPwrGood();
-
     output[0] = reg0;
 
     *output_uMon0 = uMon[0];

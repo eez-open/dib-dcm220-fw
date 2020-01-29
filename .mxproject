@@ -1,7 +1,7 @@
 [PreviousGenFiles]
-HeaderPath=C:/Users/Martin/Dropbox/Code/EEZ/dcm220-firmware-r2b4/Inc
+HeaderPath=C:/work/code/eez/dcm220-firmware/Inc
 HeaderFiles=stm32f3xx_it.h;stm32f3xx_hal_conf.h;main.h;stm32_assert.h;
-SourcePath=C:/Users/Martin/Dropbox/Code/EEZ/dcm220-firmware-r2b4/Src
+SourcePath=C:/work/code/eez/dcm220-firmware/Src
 SourceFiles=stm32f3xx_it.c;stm32f3xx_hal_msp.c;main.c;
 
 [PreviousLibFiles]
