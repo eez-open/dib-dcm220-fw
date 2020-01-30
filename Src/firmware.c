@@ -106,16 +106,19 @@ void ccLED(int iChannel, int enable) {
     }
 }
 
+void readPwrGood() {
+    if (HAL_GPIO_ReadPin(PWRGOOD_GPIO_Port, PWRGOOD_Pin) == GPIO_PIN_SET) {
+        reg0 |= REG0_PWRGOOD_MASK;
+    } else {
+        outputEnable(0, 0);
+        outputEnable(1, 0);
+        reg0 &= ~REG0_PWRGOOD_MASK;
+    }
+}
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     if (GPIO_Pin == PWRGOOD_Pin) {
-        if (HAL_GPIO_ReadPin(PWRGOOD_GPIO_Port, PWRGOOD_Pin) == GPIO_PIN_SET) {
-            reg0 |= REG0_PWRGOOD_MASK;
-            outputEnable(0, false);
-            outputEnable(1, false);
-        } else {
-            reg0 &= ~REG0_PWRGOOD_MASK;
-
-        }        
+        readPwrGood();
     } else if (GPIO_Pin == CC_1_Pin) {
         if (HAL_GPIO_ReadPin(CC_1_GPIO_Port, CC_1_Pin)) {
             reg0 |= REG0_CC1_MASK;
@@ -247,9 +250,6 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 }
 
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc) {
-}
-
-void adcInit() {
 }
 
 void adcLoop() {
@@ -401,16 +401,15 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
 }
 
 void setup() {
+    readPwrGood();
+
     // disable outputs
     HAL_GPIO_WritePin(OE_1_GPIO_Port, OE_1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(OE_2_GPIO_Port, OE_2_Pin, GPIO_PIN_RESET);
 
     dacInit();
-//    dacSetAllZero();
 
     sdadcInit();
-
-    //adcInit();
 
     slaveSynchro();
 

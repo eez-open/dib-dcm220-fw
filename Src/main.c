@@ -129,7 +129,7 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  //setup();
+  setup();
 
   /* USER CODE END 2 */
 
@@ -140,7 +140,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  //loop();
+	  loop();
   }
   /* USER CODE END 3 */
 }
@@ -688,8 +688,8 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PWRGOOD_Pin */
   GPIO_InitStruct.Pin = PWRGOOD_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(PWRGOOD_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : OE_1_Pin OE_2_Pin */
