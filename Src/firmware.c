@@ -5,7 +5,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #define FIRMWARE_VERSION_MAJOR 0x00
-#define FIRMWARE_VERSION_MINOR 0x04
+#define FIRMWARE_VERSION_MINOR 0x05
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -267,10 +267,22 @@ void adcLoop() {
 #define SPI_MASTER_SYNBYTE        0xAC
 
 void slaveSynchro(void) {
-    uint8_t txBuffer[3] = { SPI_SLAVE_SYNBYTE, FIRMWARE_VERSION_MAJOR, FIRMWARE_VERSION_MINOR };
-    uint8_t rxBuffer[3] = { 0, 0, 0 };
+    uint32_t idw0 = HAL_GetUIDw0();
+    uint32_t idw1 = HAL_GetUIDw1();
+    uint32_t idw2 = HAL_GetUIDw2();
+
+    uint8_t txBuffer[15] = {
+        SPI_SLAVE_SYNBYTE,
+        FIRMWARE_VERSION_MAJOR, FIRMWARE_VERSION_MINOR,
+        idw0 >> 24, (idw0 >> 16) & 0xFF, (idw0 >> 8) & 0xFF, idw0 & 0xFF,
+        idw1 >> 24, (idw1 >> 16) & 0xFF, (idw1 >> 8) & 0xFF, idw1 & 0xFF,
+        idw2 >> 24, (idw2 >> 16) & 0xFF, (idw2 >> 8) & 0xFF, idw2 & 0xFF
+    };
+
+    uint8_t rxBuffer[15] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
     do {
-        if (HAL_SPI_TransmitReceive(&hspi2, (uint8_t *)&txBuffer, (uint8_t *)&rxBuffer, 3, HAL_MAX_DELAY) != HAL_OK) {
+        if (HAL_SPI_TransmitReceive(&hspi2, (uint8_t *)&txBuffer, (uint8_t *)&rxBuffer, sizeof(rxBuffer), HAL_MAX_DELAY) != HAL_OK) {
             Error_Handler();
         }
     } while (rxBuffer[0] != SPI_MASTER_SYNBYTE);
