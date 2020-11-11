@@ -274,13 +274,21 @@ void slaveSynchro(void) {
         idw2 >> 24, (idw2 >> 16) & 0xFF, (idw2 >> 8) & 0xFF, idw2 & 0xFF
     };
 
-    uint8_t rxBuffer[15] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint8_t rxBuffer[15];
 
-    do {
-        if (HAL_SPI_TransmitReceive(&hspi2, (uint8_t *)&txBuffer, (uint8_t *)&rxBuffer, sizeof(rxBuffer), HAL_MAX_DELAY) != HAL_OK) {
-            Error_Handler();
-        }
-    } while (rxBuffer[0] != SPI_MASTER_SYNBYTE);
+	while (1) {
+		transferCompleted = 0;
+		HAL_StatusTypeDef result = HAL_SPI_TransmitReceive_DMA(&hspi2, (uint8_t *)&txBuffer, (uint8_t *)&rxBuffer, sizeof(rxBuffer));
+		if (result == HAL_OK) {
+			HAL_GPIO_WritePin(DIB_IRQ_GPIO_Port, DIB_IRQ_Pin, GPIO_PIN_RESET);
+			while (!transferCompleted) {
+			}
+			if (transferCompleted == 1) {
+				break;
+			}
+		}
+		HAL_Delay(1);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -396,15 +404,19 @@ void beginTransfer() {
     *output_temperature2 = temperature[2];
     *output_CRC = HAL_CRC_Calculate(&hcrc, (uint32_t *)output, BUFFER_SIZE - 4);
 
+    transferCompleted = 0;
     HAL_SPI_TransmitReceive_DMA(&hspi2, output, input, BUFFER_SIZE);
+    HAL_GPIO_WritePin(DIB_IRQ_GPIO_Port, DIB_IRQ_Pin, GPIO_PIN_RESET);
 }
 
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
-  transferCompleted = 1;
+	HAL_GPIO_WritePin(DIB_IRQ_GPIO_Port, DIB_IRQ_Pin, GPIO_PIN_SET);
+	transferCompleted = 1;
 }
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
-    transferCompleted = 1;
+	HAL_GPIO_WritePin(DIB_IRQ_GPIO_Port, DIB_IRQ_Pin, GPIO_PIN_SET);
+    transferCompleted = 2;
 }
 
 void setup() {
@@ -419,23 +431,21 @@ void setup() {
     sdadcInit();
 
     slaveSynchro();
-
     beginTransfer();
-    HAL_GPIO_WritePin(DIB_IRQ_GPIO_Port, DIB_IRQ_Pin, GPIO_PIN_SET);
 }
 
 void loop() {
     if (transferCompleted) {
-        transferCompleted = 0;
+        if (transferCompleted == 1) {
+            outputEnable(0, input[0] & REG0_OE1_MASK);
+            outputEnable(1, input[0] & REG0_OE2_MASK);
 
-		outputEnable(0, input[0] & REG0_OE1_MASK);
-		outputEnable(1, input[0] & REG0_OE2_MASK);
-
-		uSetNext[0] = inputSetValues[0];
-		iSetNext[0] = inputSetValues[1];
-		uSetNext[1] = inputSetValues[2];
-		iSetNext[1] = inputSetValues[3];
-
+            uSetNext[0] = inputSetValues[0];
+            iSetNext[0] = inputSetValues[1];
+            uSetNext[1] = inputSetValues[2];
+            iSetNext[1] = inputSetValues[3];
+        }
+        
         beginTransfer();
     }
 
